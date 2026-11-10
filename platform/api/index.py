@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from verum import providers
 from verum.quant import (backtest_breakout, build_trade_plan, evaluate_signal,
                          indicator_features, normalize_bars)
-from verum.store import authenticated_user, store
+from store import authenticated_user, store
 
 APP_VERSION = "0.1.0"
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
