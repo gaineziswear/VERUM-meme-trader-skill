@@ -99,7 +99,7 @@ After the frontend URL is known, add it to Supabase Authentication URL Configura
 - 10% portfolio drawdown triggers a pause
 - Strategy time stop: 60 minutes
 
-Paper execution applies a separate 25 bps overhead fee per side in this release. Jupiter route output already reflects quoted AMM fees and price impact; the extra fee is a simulation assumption, not a claim about exact network fees. Backtests default to 25 bps fee and 50 bps slippage per side, both explicit inputs.
+Paper execution applies a separate 25 bps overhead fee and 50 bps adverse slippage per side in this release. Jupiter route output already reflects quoted AMM fees and price impact; the extra fee and slippage are conservative simulation assumptions, not claims about exact network fees or actual fill quality. The maximum quoted route impact is checked separately against the account limit. Backtests default to 25 bps fee and 50 bps slippage per side, both explicit inputs.
 
 These are conservative simulation defaults, not empirically optimised values. Starting balance is locked after the first paper trade.
 

@@ -26,6 +26,8 @@ MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 USDC_MINT = providers.USDC_MINT
 ENTRY_FEE_RATE = 0.0025
 EXIT_FEE_RATE = 0.0025
+PAPER_SLIPPAGE_RATE = 0.005
+PAPER_SLIPPAGE_BPS_PER_SIDE = 50
 
 app = FastAPI(
     title="VERUM Meme Intelligence API",
@@ -536,7 +538,7 @@ async def open_paper_trade(body: PaperTradeRequest,
     if not price or not stop or stop >= price:
         raise HTTPException(status_code=409, detail="invalid_volatility_adjusted_trade_plan")
     stop_distance_pct = (price - stop) / price
-    sizing_cost_rate = ENTRY_FEE_RATE + EXIT_FEE_RATE + 0.005
+    sizing_cost_rate = ENTRY_FEE_RATE + EXIT_FEE_RATE + (2 * PAPER_SLIPPAGE_RATE)
     notional = risk_usd / (stop_distance_pct + sizing_cost_rate)
     cash = _number(account.get("cash_balance")) or 0
     notional = min(notional, cash / (1 + ENTRY_FEE_RATE))
@@ -559,7 +561,8 @@ async def open_paper_trade(body: PaperTradeRequest,
     decimals, decimals_meta = await providers.token_decimals(mint)
     if decimals is None:
         raise HTTPException(status_code=409, detail="token_decimals_unknown")
-    quantity = int(quote["outAmount"]) / (10 ** decimals)
+    route_out_amount = int(quote["outAmount"])
+    quantity = (route_out_amount / (10 ** decimals)) * (1 - PAPER_SLIPPAGE_RATE)
     if quantity <= 0:
         raise HTTPException(status_code=409, detail="invalid_quote_output")
     entry_fee = notional * ENTRY_FEE_RATE
@@ -574,7 +577,8 @@ async def open_paper_trade(body: PaperTradeRequest,
     stop = min(stop, entry_price - (1.5 * (_number(features.get("atr14")) or 0)))
     if stop <= 0 or stop >= entry_price:
         raise HTTPException(status_code=409, detail="stop_invalid_after_quote_deviation")
-    risk_at_stop = quantity * (entry_price - stop) + total_cost * EXIT_FEE_RATE
+    risk_at_stop = (quantity * (entry_price - stop) + total_cost * EXIT_FEE_RATE
+                    + quantity * stop * PAPER_SLIPPAGE_RATE)
     if risk_at_stop > risk_usd * 1.05:
         raise HTTPException(status_code=409, detail={
             "code": "RISK_LIMIT", "risk_at_stop_usd": round(risk_at_stop, 4),
@@ -591,10 +595,13 @@ async def open_paper_trade(body: PaperTradeRequest,
         "p_entry_price": entry_price, "p_stop_loss": stop,
         "p_take_profit_1": tp1, "p_take_profit_2": tp2,
         "p_risk_usd": risk_at_stop, "p_fees_usd": entry_fee,
-        "p_slippage_pct": impact_pct, "p_entry_quote": {
+        "p_slippage_pct": PAPER_SLIPPAGE_RATE * 100, "p_entry_quote": {
             "provider": "Jupiter", "quote_at": quote_meta.get("quote_at"),
             "price_impact_pct": impact_pct, "route_plan": quote.get("routePlan"),
-            "in_amount": quote.get("inAmount"), "out_amount": quote.get("outAmount"),
+            "in_amount": quote.get("inAmount"), "route_out_amount": route_out_amount,
+            "simulated_fill_out_amount": quantity * (10 ** decimals),
+            "simulated_slippage_bps_per_side": PAPER_SLIPPAGE_BPS_PER_SIDE,
+            "simulated_slippage_pct_per_side": PAPER_SLIPPAGE_RATE * 100,
             "quote_age_seconds": quote_age,
         }, "p_strategy": body.strategy,
     }, user["access_token"])
@@ -635,7 +642,8 @@ async def close_paper_position(position_id: str,
     quote_age = max(0, time.time() - quote_meta.get("quote_at", time.time()))
     if quote_age > 30:
         raise HTTPException(status_code=409, detail="stale_jupiter_exit_quote")
-    proceeds = int(quote["outAmount"]) / 1_000_000
+    route_proceeds = int(quote["outAmount"]) / 1_000_000
+    proceeds = route_proceeds * (1 - PAPER_SLIPPAGE_RATE)
     exit_fee = proceeds * EXIT_FEE_RATE
     exit_price = proceeds / quantity if quantity else 0
     result = await store.rpc("close_paper_position", {
@@ -643,6 +651,9 @@ async def close_paper_position(position_id: str,
         "p_proceeds_usd": proceeds, "p_fees_usd": exit_fee,
         "p_exit_quote": {"provider": "Jupiter", "quote_at": quote_meta.get("quote_at"),
                          "price_impact_pct": quote.get("priceImpactPct"),
+                         "route_proceeds_usd": route_proceeds,
+                         "simulated_fill_proceeds_usd": proceeds,
+                         "simulated_slippage_bps_per_side": PAPER_SLIPPAGE_BPS_PER_SIDE,
                          "route_plan": quote.get("routePlan")},
         "p_reason": "manual_paper_close",
     }, user["access_token"])

@@ -22,6 +22,8 @@ async function authorised(request: Request): Promise<boolean> {
 
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const FEE_RATE = 0.0025;
+const SLIPPAGE_RATE = 0.005;
+const SLIPPAGE_BPS_PER_SIDE = 50;
 
 async function json(url: string, init?: RequestInit): Promise<any> {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
@@ -123,7 +125,8 @@ async function monitorPosition(position: any) {
     const sellQty = partialTarget ? qty * 0.5 : qty;
     const rawAmount = Math.floor(sellQty * (10 ** tokenDecimals));
     const route = await quote(mint, USDC, rawAmount);
-    const proceeds = Number(route.outAmount) / 1_000_000;
+    const routeProceeds = Number(route.outAmount) / 1_000_000;
+    const proceeds = routeProceeds * (1 - SLIPPAGE_RATE);
     if (!(proceeds > 0)) throw new Error('empty_exit_quote');
     const { data: riskSettings } = await db.from('paper_accounts').select('max_slippage_pct')
       .eq('user_id', position.user_id).maybeSingle();
@@ -141,6 +144,9 @@ async function monitorPosition(position: any) {
     const quoteDetails = {
       provider: 'Jupiter', quote_at: new Date().toISOString(),
       price_impact_pct: route.priceImpactPct ?? null,
+      route_proceeds_usd: routeProceeds,
+      simulated_fill_proceeds_usd: proceeds,
+      simulated_slippage_bps_per_side: SLIPPAGE_BPS_PER_SIDE,
       route_plan: route.routePlan ?? [],
     };
 
