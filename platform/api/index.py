@@ -1,4 +1,4 @@
-"""VERUM Meme Intelligence — FastAPI service.
+"""VERUM Meme Intelligence - FastAPI service.
 
 Read-only public market/security providers; authenticated private paper records.
 There is intentionally no live-trading, signing, or wallet-key endpoint.

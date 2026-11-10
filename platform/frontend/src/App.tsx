@@ -21,22 +21,22 @@ const NAV: { name: Page; icon: typeof Activity }[] = [
   { name: 'Journal', icon: BookOpen }, { name: 'Settings', icon: SlidersHorizontal },
 ];
 const money = (value?: number | null) => value == null || !Number.isFinite(Number(value))
-  ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: Number(value) < 1 ? 6 : 2 }).format(Number(value));
-const pct = (value?: number | null) => value == null || !Number.isFinite(Number(value)) ? '—' : \`${Number(value).toFixed(2)}%\`;
-const shortMint = (value?: string) => value ? \`${value.slice(0, 5)}…${value.slice(-5)}\` : '—';
+  ? '-' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: Number(value) < 1 ? 6 : 2 }).format(Number(value));
+const pct = (value?: number | null) => value == null || !Number.isFinite(Number(value)) ? '-' : `${Number(value).toFixed(2)}%`;
+const shortMint = (value?: string) => value ? `${value.slice(0, 5)}…${value.slice(-5)}` : '-';
 const stamp = (value?: string | number | null) => {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(typeof value === 'number' ? value * 1000 : value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
 };
 const errorText = (value: unknown) => value instanceof Error ? value.message : 'Request failed';
 
 async function api<T>(path: string, session: Session | null, method = 'GET', body?: unknown): Promise<T> {
   if (!API_BASE) throw new Error('API endpoint is not configured');
   if (!session?.access_token) throw new Error('Sign in to access this workspace');
-  const response = await fetch(\`${API_BASE}/api/v1${path}\`, {
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', Authorization: \`Bearer ${session.access_token}\` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const payload = await response.json().catch(() => ({})) as ApiError & T;
@@ -47,7 +47,7 @@ async function api<T>(path: string, session: Session | null, method = 'GET', bod
       const messages = [...(detail.flags || []).map(item => item.message), ...(detail.missing_evidence || [])];
       throw new Error([detail.code, detail.status, ...messages].filter(Boolean).join(' · ') || 'Request rejected');
     }
-    throw new Error((payload as ApiError)?.detail as string || \`HTTP ${response.status}\`);
+    throw new Error((payload as ApiError)?.detail as string || `HTTP ${response.status}`);
   }
   return payload as T;
 }
@@ -57,12 +57,12 @@ function Pill({ value }: { value: string }) {
   const cls = ['BUY', 'PASS', 'OPEN', 'OK', 'VALIDATED', 'SUCCESS', 'GRADUATED'].includes(v) ? 'good'
     : ['BLOCKED', 'AVOID', 'WARNING', 'ERROR', 'STOP'].includes(v) ? 'bad'
     : ['INSUFFICIENT_DATA', 'UNKNOWN', 'UNAVAILABLE', 'VETO'].includes(v) ? 'muted' : 'wait';
-  return <span className={\`pill ${cls}\`}>{value.replaceAll('_', ' ')}</span>;
+  return <span className={`pill ${cls}`}>{value.replaceAll('_', ' ')}</span>;
 }
 function Panel({ title, subtitle, action, children, className = '' }: {
   title: string; subtitle?: string; action?: ReactNode; children: ReactNode; className?: string;
 }) {
-  return <section className={\`panel ${className}\`}>
+  return <section className={`panel ${className}`}>
     <div className="panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>
     {children}
   </section>;
@@ -189,11 +189,11 @@ export default function App() {
   };
   const selectToken = (mint: string) => { setAnalysisMint(mint); setPage('Analysis'); setAnalysis(null); };
   const analyse = () => run(
-    () => api<any>(\`/tokens/${encodeURIComponent(analysisMint.trim())}/analysis\`, session),
+    () => api<any>(`/tokens/${encodeURIComponent(analysisMint.trim())}/analysis`, session),
     value => setAnalysis(value),
   );
   const analyseWallet = () => run(
-    () => api<any>(\`/wallets/${encodeURIComponent(walletAddress.trim())}\`, session),
+    () => api<any>(`/wallets/${encodeURIComponent(walletAddress.trim())}`, session),
     value => setWalletReport(value),
   );
   const runBacktest = () => run(
@@ -212,7 +212,7 @@ export default function App() {
     },
   );
   const closePaper = (id: string) => run(
-    () => api<any>(\`/paper/positions/${id}/close\`, session, 'POST', {}),
+    () => api<any>(`/paper/positions/${id}/close`, session, 'POST', {}),
     async () => {
       const [a, p] = await Promise.all([
         api<{ account: any }>('/paper/account', session),
@@ -254,12 +254,12 @@ export default function App() {
       </div>
     </header>
     <div className="workspace">
-      <aside className={\`sidebar ${mobileMenu ? 'show' : ''}\`}>
+      <aside className={`sidebar ${mobileMenu ? 'show' : ''}`}>
         <div className="side-caption">WORKSPACE</div>
         {NAV.map(item => {
           const Icon = item.icon;
-          return <button key={item.name} className={\`nav-item ${page === item.name ? 'active' : ''}\`} onClick={() => { setPage(item.name); setMobileMenu(false); setError(''); }}>
-            <Icon size={17}/><span>{item.name}</span>{item.name === 'Signals' && <span className="nav-count">{signals.length || '—'}</span>}
+          return <button key={item.name} className={`nav-item ${page === item.name ? 'active' : ''}`} onClick={() => { setPage(item.name); setMobileMenu(false); setError(''); }}>
+            <Icon size={17}/><span>{item.name}</span>{item.name === 'Signals' && <span className="nav-count">{signals.length || '-'}</span>}
           </button>;
         })}
         <div className="sidebar-foot"><div className="side-caption">SYSTEM STATUS</div>
@@ -316,8 +316,8 @@ export default function App() {
               {analysis.security?.missing_evidence?.length > 0 && <div className="missing-list"><strong>Missing evidence</strong>{analysis.security.missing_evidence.map((item:string)=><span key={item}>• {item}</span>)}</div>}
             </Panel>
             <Panel title="Market and quant features">
-              <div className="metric-grid"><Metric label="RSI 14" value={analysis.features?.rsi14?.toFixed?.(1) ?? '—'}/><Metric label="ATR 14" value={analysis.features?.atr14?.toPrecision?.(5) ?? '—'}/><Metric label="Volume ratio" value={analysis.features?.volume_ratio?.toFixed?.(2) ?? '—'} note="vs prior 20 candles"/><Metric label="Trend" value={analysis.features?.trend || 'UNKNOWN'}/></div>
-              <div className="fact-grid"><div><span>Lifecycle</span><b>{analysis.lifecycle}</b></div><div><span>DEX</span><b>{analysis.market?.dex_id || 'UNKNOWN'}</b></div><div><span>Buys / sells (1h)</span><b>{analysis.market?.buys_h1 ?? '—'} / {analysis.market?.sells_h1 ?? '—'}</b></div><div><span>Volume (24h)</span><b>{money(analysis.market?.volume_h24)}</b></div></div>
+              <div className="metric-grid"><Metric label="RSI 14" value={analysis.features?.rsi14?.toFixed?.(1) ?? '-'}/><Metric label="ATR 14" value={analysis.features?.atr14?.toPrecision?.(5) ?? '-'}/><Metric label="Volume ratio" value={analysis.features?.volume_ratio?.toFixed?.(2) ?? '-'} note="vs prior 20 candles"/><Metric label="Trend" value={analysis.features?.trend || 'UNKNOWN'}/></div>
+              <div className="fact-grid"><div><span>Lifecycle</span><b>{analysis.lifecycle}</b></div><div><span>DEX</span><b>{analysis.market?.dex_id || 'UNKNOWN'}</b></div><div><span>Buys / sells (1h)</span><b>{analysis.market?.buys_h1 ?? '-'} / {analysis.market?.sells_h1 ?? '-'}</b></div><div><span>Volume (24h)</span><b>{money(analysis.market?.volume_h24)}</b></div></div>
             </Panel>
             <Panel title="Adaptive trade plan" subtitle="Volatility-derived levels. A paper entry still requires a fresh route quote.">
               <div className="metric-grid"><Metric label="Entry reference" value={money(analysis.trade_plan?.entry)}/><Metric label="Stop-loss" value={money(analysis.trade_plan?.stop_loss)}/><Metric label="Target 1" value={money(analysis.trade_plan?.take_profit_1)}/><Metric label="Target 2" value={money(analysis.trade_plan?.take_profit_2)}/></div>
@@ -349,14 +349,14 @@ export default function App() {
           </Panel>
           {backtest && <div className="page-stack">
             <div className="analysis-title"><div><h2>Research result</h2><code>Dataset {backtest.dataset_fingerprint?.slice(0,16)}</code></div><Pill value={backtest.strategy_validation || backtest.status}/></div>
-            {backtest.status === 'INSUFFICIENT_DATA' ? <Empty title="Insufficient historical data" note={\`Observed ${backtest.bars} bars. At least ${backtest.required_bars} are required.\`}/> :
+            {backtest.status === 'INSUFFICIENT_DATA' ? <Empty title="Insufficient historical data" note={`Observed ${backtest.bars} bars. At least ${backtest.required_bars} are required.`}/> :
               <>
-                <div className="metric-grid"><Metric label="Out-of-sample trades" value={backtest.out_of_sample?.trades ?? 0}/><Metric label="OOS expectancy" value={backtest.out_of_sample?.expectancy_r == null ? '—' : \`${backtest.out_of_sample.expectancy_r.toFixed(3)}R\`}/><Metric label="Profit factor" value={backtest.out_of_sample?.profit_factor?.toFixed?.(2) ?? '—'}/><Metric label="Max drawdown" value={backtest.out_of_sample?.max_drawdown_r?.toFixed?.(2) ?? '—'} note="R units"/></div>
+                <div className="metric-grid"><Metric label="Out-of-sample trades" value={backtest.out_of_sample?.trades ?? 0}/><Metric label="OOS expectancy" value={backtest.out_of_sample?.expectancy_r == null ? '-' : `${backtest.out_of_sample.expectancy_r.toFixed(3)}R`}/><Metric label="Profit factor" value={backtest.out_of_sample?.profit_factor?.toFixed?.(2) ?? '-'}/><Metric label="Max drawdown" value={backtest.out_of_sample?.max_drawdown_r?.toFixed?.(2) ?? '-'} note="R units"/></div>
                 <div className="two-col">
-                  <Panel title="In-sample"><div className="fact-grid"><div><span>Trades</span><b>{backtest.in_sample?.trades}</b></div><div><span>Win rate</span><b>{pct((backtest.in_sample?.win_rate || 0)*100)}</b></div><div><span>Expectancy</span><b>{backtest.in_sample?.expectancy_r?.toFixed?.(3) ?? '—'}R</b></div><div><span>Profit factor</span><b>{backtest.in_sample?.profit_factor?.toFixed?.(2) ?? '—'}</b></div></div></Panel>
-                  <Panel title="Out-of-sample"><div className="fact-grid"><div><span>Trades</span><b>{backtest.out_of_sample?.trades}</b></div><div><span>Win rate</span><b>{pct((backtest.out_of_sample?.win_rate || 0)*100)}</b></div><div><span>Expectancy</span><b>{backtest.out_of_sample?.expectancy_r?.toFixed?.(3) ?? '—'}R</b></div><div><span>Profit factor</span><b>{backtest.out_of_sample?.profit_factor?.toFixed?.(2) ?? '—'}</b></div></div></Panel>
+                  <Panel title="In-sample"><div className="fact-grid"><div><span>Trades</span><b>{backtest.in_sample?.trades}</b></div><div><span>Win rate</span><b>{pct((backtest.in_sample?.win_rate || 0)*100)}</b></div><div><span>Expectancy</span><b>{backtest.in_sample?.expectancy_r?.toFixed?.(3) ?? '-'}R</b></div><div><span>Profit factor</span><b>{backtest.in_sample?.profit_factor?.toFixed?.(2) ?? '-'}</b></div></div></Panel>
+                  <Panel title="Out-of-sample"><div className="fact-grid"><div><span>Trades</span><b>{backtest.out_of_sample?.trades}</b></div><div><span>Win rate</span><b>{pct((backtest.out_of_sample?.win_rate || 0)*100)}</b></div><div><span>Expectancy</span><b>{backtest.out_of_sample?.expectancy_r?.toFixed?.(3) ?? '-'}R</b></div><div><span>Profit factor</span><b>{backtest.out_of_sample?.profit_factor?.toFixed?.(2) ?? '-'}</b></div></div></Panel>
                 </div>
-                <Panel title="Uncertainty and risk"><div className="fact-grid"><div><span>Bootstrap 95% lower</span><b>{backtest.expectancy_ci_95?.lower?.toFixed?.(3) ?? '—'}R</b></div><div><span>Bootstrap 95% upper</span><b>{backtest.expectancy_ci_95?.upper?.toFixed?.(3) ?? '—'}R</b></div><div><span>Risk of 50% drawdown</span><b>{pct((backtest.risk_of_ruin?.probability_half || 0)*100)}</b></div><div><span>Bootstrap runs</span><b>{backtest.expectancy_ci_95?.runs ?? 0}</b></div></div><p className="muted-copy">{backtest.validation_rule}. This is a research gate, not a profitability promise.</p></Panel>
+                <Panel title="Uncertainty and risk"><div className="fact-grid"><div><span>Bootstrap 95% lower</span><b>{backtest.expectancy_ci_95?.lower?.toFixed?.(3) ?? '-'}R</b></div><div><span>Bootstrap 95% upper</span><b>{backtest.expectancy_ci_95?.upper?.toFixed?.(3) ?? '-'}R</b></div><div><span>Risk of 50% drawdown</span><b>{pct((backtest.risk_of_ruin?.probability_half || 0)*100)}</b></div><div><span>Bootstrap runs</span><b>{backtest.expectancy_ci_95?.runs ?? 0}</b></div></div><p className="muted-copy">{backtest.validation_rule}. This is a research gate, not a profitability promise.</p></Panel>
               </>}
           </div>}
         </div>}
@@ -372,14 +372,14 @@ export default function App() {
                 <button className="secondary small-button" onClick={()=>closePaper(item.id)} disabled={busy}>Close</button>
               </div>)}</div>}
           </Panel>
-          <Panel title="Execution constraints"><div className="fact-grid"><div><span>Daily loss cap</span><b>{pct(account?.max_daily_loss_pct)}</b></div><div><span>Max exposure</span><b>{pct(account?.max_total_exposure_pct)}</b></div><div><span>Max price impact</span><b>{pct(account?.max_slippage_pct)}</b></div><div><span>Max positions</span><b>{account?.max_open_positions ?? '—'}</b></div></div><p className="muted-copy">The Risk Manager enforces these controls server-side. Three consecutive losing exits and a 10% portfolio drawdown trigger a pause.</p></Panel>
+          <Panel title="Execution constraints"><div className="fact-grid"><div><span>Daily loss cap</span><b>{pct(account?.max_daily_loss_pct)}</b></div><div><span>Max exposure</span><b>{pct(account?.max_total_exposure_pct)}</b></div><div><span>Max price impact</span><b>{pct(account?.max_slippage_pct)}</b></div><div><span>Max positions</span><b>{account?.max_open_positions ?? '-'}</b></div></div><p className="muted-copy">The Risk Manager enforces these controls server-side. Three consecutive losing exits and a 10% portfolio drawdown trigger a pause.</p></Panel>
         </div>}
 
         {page === 'Journal' && <div className="page-stack">
           <Panel title="Trade journal" subtitle="Realised results from simulated fills only." action={<button className="secondary" onClick={loadJournal} disabled={busy}><RefreshCw size={14}/> Refresh</button>}>
             {journal ? <>
               <div className="metric-grid"><Metric label="Closed trades" value={journal.closed_trades}/><Metric label="Realised P&L" value={money(journal.realised_pnl_usd)}/><Metric label="Win rate" value={pct((journal.win_rate || 0)*100)}/><Metric label="All records" value={journal.trades?.length || 0}/></div>
-              {journal.trades?.length ? <div className="table-wrap"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Price</th><th>Gross USD</th><th>Fees</th><th>P&L</th></tr></thead><tbody>{journal.trades.map((row:any)=><tr key={row.id}><td>{stamp(row.created_at)}</td><td>{row.symbol || shortMint(row.mint)}</td><td><Pill value={row.side}/></td><td>{money(row.price)}</td><td>{money(row.gross_usd)}</td><td>{money(row.fees_usd)}</td><td className={(row.pnl_usd||0)>=0?'positive':'negative'}>{row.pnl_usd == null?'—':money(row.pnl_usd)}</td></tr>)}</tbody></table></div> : <Empty title="Journal is empty" note="Paper trades will be recorded here with quote source, fees and timestamps."/>}
+              {journal.trades?.length ? <div className="table-wrap"><table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Price</th><th>Gross USD</th><th>Fees</th><th>P&L</th></tr></thead><tbody>{journal.trades.map((row:any)=><tr key={row.id}><td>{stamp(row.created_at)}</td><td>{row.symbol || shortMint(row.mint)}</td><td><Pill value={row.side}/></td><td>{money(row.price)}</td><td>{money(row.gross_usd)}</td><td>{money(row.fees_usd)}</td><td className={(row.pnl_usd||0)>=0?'positive':'negative'}>{row.pnl_usd == null?'-':money(row.pnl_usd)}</td></tr>)}</tbody></table></div> : <Empty title="Journal is empty" note="Paper trades will be recorded here with quote source, fees and timestamps."/>}
             </> : <Empty title="No journal loaded" note="Refresh to retrieve your persistent trade records."/>}
           </Panel>
           {alerts.length > 0 && <Panel title="Recent alerts"><div className="finding-list">{alerts.slice(0,20).map((item:any)=><div className="finding" key={item.id}><Bell size={14}/><span>{item.message}</span><Pill value={item.severity}/></div>)}</div></Panel>}
