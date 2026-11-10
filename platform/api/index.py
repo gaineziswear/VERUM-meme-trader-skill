@@ -143,6 +143,11 @@ def _security(rug: dict[str, Any] | None, goplus: dict[str, Any] | None,
         if dev_hold_pct is not None and dev_hold_pct <= 1:
             dev_hold_pct *= 100
         if dev_hold_pct is None:
+            creator_balance = _number(rug.get("creatorBalance"))
+            token_supply = _number(token.get("supply"))
+            if creator_balance is not None and token_supply and token_supply > 0:
+                dev_hold_pct = creator_balance / token_supply * 100
+        if dev_hold_pct is None:
             unknown.append("Creator/developer holding concentration unavailable")
 
     if not goplus:
@@ -165,6 +170,25 @@ def _security(rug: dict[str, Any] | None, goplus: dict[str, Any] | None,
         if "transfer_hook" in goplus and _goplus_flag(goplus.get("transfer_hook")):
             flags.append({"level": "CAUTION", "code": "transfer_hook",
                           "message": "Transfer hook is configured"})
+        if "transfer_fee_upgradable" in goplus and _goplus_flag(goplus.get("transfer_fee_upgradable")):
+            flags.append({"level": "CRITICAL", "code": "transfer_fee_upgradable",
+                          "message": "Transfer fee can be changed by an authority"})
+        if "transfer_hook_upgradable" in goplus and _goplus_flag(goplus.get("transfer_hook_upgradable")):
+            flags.append({"level": "CAUTION", "code": "transfer_hook_upgradable",
+                          "message": "Transfer hook can be changed by an authority"})
+        if "default_account_state_upgradable" in goplus and _goplus_flag(goplus.get("default_account_state_upgradable")):
+            flags.append({"level": "CRITICAL", "code": "default_account_state_upgradable",
+                          "message": "Default token-account state can be changed by an authority"})
+        if "metadata_mutable" in goplus and _goplus_flag(goplus.get("metadata_mutable")):
+            flags.append({"level": "CAUTION", "code": "metadata_mutable",
+                          "message": "Token metadata remains mutable"})
+        if str(goplus.get("default_account_state", "")).lower() in ("2", "frozen"):
+            flags.append({"level": "CRITICAL", "code": "default_account_frozen",
+                          "message": "New token accounts default to a frozen state"})
+        for creator in goplus.get("creators") or []:
+            if isinstance(creator, dict) and _goplus_flag(creator.get("malicious_address")):
+                flags.append({"level": "CRITICAL", "code": "malicious_creator",
+                              "message": "GoPlus identifies a creator address as malicious"})
 
     if mint_authority:
         flags.append({"level": "CRITICAL", "code": "mint_authority",
@@ -309,7 +333,7 @@ async def analyse_token(mint: str, launch: dict[str, Any] | None = None,
         "token": {
             "name": (launch or {}).get("name") or ((pair or {}).get("baseToken") or {}).get("name"),
             "symbol": (launch or {}).get("symbol") or ((pair or {}).get("baseToken") or {}).get("symbol"),
-            "creator_wallet": (launch or {}).get("creator_wallet"),
+            "creator_wallet": (launch or {}).get("creator_wallet") or (rug or {}).get("creator"),
             "metadata_uri": (launch or {}).get("metadata_uri"),
         },
         "lifecycle": lifecycle, "security": security, "market": market,
