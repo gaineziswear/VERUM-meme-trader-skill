@@ -181,7 +181,7 @@ async function probeProviderHealth(mint: string): Promise<Record<string, unknown
       (body) => body?.result === 'ok'),
   ];
   const { data: market } = await db.from('token_market_snapshots').select('pair_address')
-    .eq('mint', mint).order('captured_at', { ascending: false }).limit(1).maybeSingle();
+    .not('pair_address', 'is', null).order('captured_at', { ascending: false }).limit(1).maybeSingle();
   if (market?.pair_address) {
     checks.push(probeProvider('GeckoTerminal',
       'https://api.geckoterminal.com/api/v2/networks/solana/pools/' + market.pair_address
