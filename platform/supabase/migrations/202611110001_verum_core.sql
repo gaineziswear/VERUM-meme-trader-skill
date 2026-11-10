@@ -246,6 +246,7 @@ grant execute on function public.close_paper_position(uuid,numeric,numeric,numer
 -- Narrow supporting indexes for paper journal and time-series access.
 create index if not exists paper_trades_position_id_idx on public.paper_trades(position_id);
 create index if not exists token_market_captured_idx on public.token_market_snapshots(captured_at desc);
+alter table public.research_runs add column if not exists dataset_snapshot jsonb;
 create index if not exists research_runs_user_mint_time_idx on public.research_runs(user_id,mint,created_at desc);
 
 drop policy if exists "Service role manages internal cron config" on public.verum_internal_config;

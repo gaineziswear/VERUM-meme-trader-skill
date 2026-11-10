@@ -123,7 +123,7 @@ export default function App() {
   }, []);
 
   const loadSignals = useCallback(() => run(
-    () => api<{ signals: any[] }>('/signals?limit=12', session),
+    () => api<{ signals: any[] }>('/signals?limit=5', session),
     value => setSignals(value.signals || []),
   ), [run, session]);
   const loadRadar = useCallback(() => run(

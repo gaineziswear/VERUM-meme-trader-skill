@@ -33,10 +33,10 @@ See docs/UPSTREAM_AUDIT.md for the 13-skill source review, test-suite review, li
 | RugCheck | Solana token risk report | Public endpoint |
 | GoPlus | Solana token security flags | Public endpoint |
 | Jupiter | Executable route quotes | Free keyless access or optional free API key |
-| Jupiter Data API / GeckoTerminal | OHLCV history | Public endpoints |
+| Jupiter Data API / GeckoTerminal | OHLCV history | Public endpoints; GeckoTerminal public API is approximately 10 calls/minute |
 | Solana RPC | Token decimals and recent wallet signatures | Public RPC; rate limits apply |
 
-No paid API or transaction service is enabled. PumpPortal account-trade and token-trade subscriptions are intentionally not enabled because some streams can incur SOL-denominated charges. Jupiter quotes are read-only; no swap transaction is built, signed or submitted. Without a Jupiter API key, quote calls are spaced for the public keyless rate limit. An optional free API key raises throughput. Configure JUPITER_API_KEY in the API project and as a Supabase Edge Function secret if desired.
+No paid API or transaction service is enabled. PumpPortal account-trade and token-trade subscriptions are intentionally not enabled because some streams can incur SOL-denominated charges. Jupiter quotes are read-only; no swap transaction is built, signed or submitted. Without a Jupiter API key, quote calls are spaced for the public keyless rate limit. An optional free API key raises throughput. GeckoTerminal requests are serialized at a conservative 6.1-second interval; historical replay pages up to 3,000 one-minute candles when the pool has that history. Configure JUPITER_API_KEY in the API project and as a Supabase Edge Function secret if desired.
 
 Snapshot retention is seven days by default to control free-tier database growth.
 

@@ -16,6 +16,8 @@ GECKO = "https://api.geckoterminal.com/api/v2"
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 _JUPITER_LOCK = asyncio.Lock()
 _JUPITER_LAST_CALL = 0.0
+_GECKO_LOCK = asyncio.Lock()
+_GECKO_LAST_CALL = 0.0
 SOLANA_RPC = "https://api.mainnet-beta.solana.com"
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
@@ -87,13 +89,42 @@ async def jupiter_candles(mint: str, limit: int = 500) -> tuple[Any | None, dict
 
 
 async def gecko_candles(pool_address: str, limit: int = 500) -> tuple[Any | None, dict[str, Any]]:
-    params = {"aggregate": 1, "limit": max(60, min(1000, limit)),
-              "currency": "usd", "token": "base"}
-    data, meta = await get_json(
-        f"{GECKO}/networks/solana/pools/{pool_address}/ohlcv/minute",
-        params=params, timeout=15,
-    )
-    return data, {**meta, "source": "GeckoTerminal OHLCV"}
+    global _GECKO_LAST_CALL
+    requested = max(60, min(3000, limit))
+    pages = (requested + 999) // 1000
+    all_rows: list[Any] = []
+    page_meta: list[dict[str, Any]] = []
+    before_timestamp = None
+    for _ in range(pages):
+        params = {"aggregate": 1, "limit": min(1000, requested - len(all_rows)),
+                  "currency": "usd", "token": "base", "include_empty_intervals": "true"}
+        if before_timestamp is not None:
+            params["before_timestamp"] = before_timestamp
+        async with _GECKO_LOCK:
+            wait = 6.1 - (time.monotonic() - _GECKO_LAST_CALL)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            _GECKO_LAST_CALL = time.monotonic()
+            data, meta = await get_json(
+                f"{GECKO}/networks/solana/pools/{pool_address}/ohlcv/minute",
+                params=params, timeout=15,
+                extra_headers={"Accept": "application/json;version=20230203"},
+            )
+        page_meta.append(meta)
+        rows = (((data or {}).get("data") or {}).get("attributes") or {}).get("ohlcv_list") or []
+        if not rows:
+            break
+        all_rows.extend(rows)
+        oldest = min(int(row[0]) for row in rows if row and row[0] is not None)
+        before_timestamp = oldest - 1
+        if len(rows) < params["limit"] or len(all_rows) >= requested:
+            break
+    status = "OK" if all_rows and all(item.get("status") == "OK" for item in page_meta) else "PARTIAL" if all_rows else "UNAVAILABLE"
+    data = {"data": {"attributes": {"ohlcv_list": all_rows}}} if all_rows else None
+    latest_meta = page_meta[-1] if page_meta else {"fetched_at": time.time(), "status": "UNAVAILABLE"}
+    return data, {**latest_meta, "status": status, "source": "GeckoTerminal OHLCV",
+                  "pages_fetched": len(page_meta), "bars_fetched": len(all_rows),
+                  "requested_bars": requested}
 
 
 async def token_decimals(mint: str) -> tuple[int | None, dict[str, Any]]:

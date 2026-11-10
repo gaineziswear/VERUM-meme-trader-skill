@@ -392,9 +392,17 @@ async def root() -> dict[str, Any]:
 
 @app.get("/api/v1/health")
 async def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "verum-api", "version": APP_VERSION,
-            "database_configured": store.ready(), "paper_only": True,
-            "timestamp": datetime.now(timezone.utc).isoformat()}
+    database_status = "NOT_CONFIGURED" if not store.ready() else "UNAVAILABLE"
+    if store.ready():
+        try:
+            await store.select("provider_status", params={"select": "provider", "limit": "1"})
+            database_status = "OK"
+        except HTTPException:
+            database_status = "UNAVAILABLE"
+    return {"status": "ok" if database_status == "OK" else "degraded",
+            "service": "verum-api", "version": APP_VERSION,
+            "database_configured": store.ready(), "database_status": database_status,
+            "paper_only": True, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/v1/providers")
@@ -438,10 +446,10 @@ async def token_analysis(mint: str, user: dict[str, Any] = Depends(authenticated
 
 
 @app.get("/api/v1/signals")
-async def signals(limit: int = 12,
+async def signals(limit: int = 5,
                   user: dict[str, Any] = Depends(authenticated_user)) -> dict[str, Any]:
     launches = await store.select("token_launches", user["access_token"], {
-        "select": "*", "order": "last_seen_at.desc", "limit": str(max(1, min(limit, 20))),
+        "select": "*", "order": "last_seen_at.desc", "limit": str(max(1, min(limit, 5))),
     })
     research = await store.select("research_runs", user["access_token"], {
         "select": "mint,result", "limit": "100",
@@ -592,7 +600,8 @@ async def open_paper_trade(body: PaperTradeRequest,
     entry_fee = notional * ENTRY_FEE_RATE
     total_cost = notional + entry_fee
     entry_price = total_cost / quantity
-    entry_deviation_pct = abs(entry_price - price) / price * 100.0
+    entry_reference_price = _number(analysis["market"].get("price_usd")) or price
+    entry_deviation_pct = abs(entry_price - entry_reference_price) / entry_reference_price * 100.0
     if entry_deviation_pct > 2.0:
         raise HTTPException(status_code=409, detail={
             "code": "ENTRY_DEVIATION_LIMIT", "entry_deviation_pct": round(entry_deviation_pct, 4),
@@ -622,6 +631,8 @@ async def open_paper_trade(body: PaperTradeRequest,
         "p_slippage_pct": PAPER_SLIPPAGE_RATE * 100, "p_entry_quote": {
             "provider": "Jupiter", "quote_at": quote_meta.get("quote_at"),
             "price_impact_pct": impact_pct, "route_plan": quote.get("routePlan"),
+            "entry_reference_price_usd": entry_reference_price,
+            "entry_deviation_pct": round(entry_deviation_pct, 4),
             "in_amount": quote.get("inAmount"), "route_out_amount": route_out_amount,
             "simulated_fill_out_amount": quantity * (10 ** decimals),
             "simulated_slippage_bps_per_side": PAPER_SLIPPAGE_BPS_PER_SIDE,
@@ -717,8 +728,8 @@ async def strategy_lab(body: BacktestRequest,
     pair = _best_pair(pairs, mint)
     payload, meta = await providers.jupiter_candles(mint, 1000)
     bars = normalize_bars(payload)
-    if len(bars) < 120 and pair and pair.get("pairAddress"):
-        gecko_payload, gecko_meta = await providers.gecko_candles(pair["pairAddress"], 1000)
+    if pair and pair.get("pairAddress"):
+        gecko_payload, gecko_meta = await providers.gecko_candles(pair["pairAddress"], 3000)
         gecko_bars = normalize_bars(gecko_payload)
         if len(gecko_bars) > len(bars):
             bars, meta = gecko_bars, gecko_meta
@@ -737,7 +748,8 @@ async def strategy_lab(body: BacktestRequest,
             "dataset_fingerprint": result["dataset_fingerprint"],
             "data_start": datetime.fromtimestamp(bars[0]["t"], timezone.utc).isoformat(),
             "data_end": datetime.fromtimestamp(bars[-1]["t"], timezone.utc).isoformat(),
-            "bars": len(bars), "in_sample_metrics": result["in_sample"],
+            "bars": len(bars), "dataset_snapshot": bars,
+            "in_sample_metrics": result["in_sample"],
             "out_of_sample_metrics": result["out_of_sample"],
             "assumptions": result["assumptions"], "result": result,
         }, user["access_token"])

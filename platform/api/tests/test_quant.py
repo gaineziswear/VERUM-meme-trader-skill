@@ -23,6 +23,14 @@ class QuantTests(unittest.TestCase):
                                 "low": 0.9, "close": 1.5, "volume": 10}]}
         self.assertEqual(normalize_bars(payload)[0]["t"], 120)
 
+    def test_geckoterminal_ohlcv_array(self):
+        payload = {"data": {"attributes": {"ohlcv_list": [
+            [1700000000, 1.0, 2.0, 0.9, 1.5, 10.0]
+        ]}}}
+        bars = normalize_bars(payload)
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(bars[0]["c"], 1.5)
+
     def test_millisecond_timestamps_normalize_to_seconds(self):
         payload = {"candles": [{"time": 1700000000000, "open": 1, "high": 2,
                                 "low": 0.9, "close": 1.5, "volume": 10}]}
