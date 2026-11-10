@@ -125,11 +125,71 @@ async function upsertLaunches(rows: Launch[]): Promise<number> {
 
 async function recordProvider(provider: string, status: string, records: number,
                               latencyMs: number | null, errorText?: string) {
-  await db.from('provider_status').upsert({
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
     provider, status, records_seen: records, latency_ms: latencyMs,
-    last_success_at: status === 'OK' ? new Date().toISOString() : null,
-    last_error: errorText ?? null, updated_at: new Date().toISOString(),
-  }, { onConflict: 'provider' });
+    last_error: errorText ?? null, updated_at: now,
+  };
+  if (status === 'OK') payload.last_success_at = now;
+  const { data: existing } = await db.from('provider_status').select('provider')
+    .eq('provider', provider).maybeSingle();
+  if (existing) await db.from('provider_status').update(payload).eq('provider', provider);
+  else await db.from('provider_status').insert({ ...payload, last_success_at: status === 'OK' ? now : null });
+}
+
+async function probeProvider(provider: string, url: string,
+  init: RequestInit, valid: (body: any) => boolean): Promise<Record<string, unknown>> {
+  const started = Date.now();
+  try {
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(8000) });
+    const body = await response.json();
+    const ok = response.ok && valid(body);
+    const errorText = ok ? undefined : 'HTTP ' + response.status;
+    await recordProvider(provider, ok ? 'OK' : 'UNAVAILABLE', ok ? 1 : 0,
+                         Date.now() - started, errorText);
+    return { provider, status: ok ? 'OK' : 'UNAVAILABLE', latency_ms: Date.now() - started };
+  } catch (error) {
+    const errorText = error instanceof Error ? error.name : 'provider_probe_failed';
+    await recordProvider(provider, 'UNAVAILABLE', 0, Date.now() - started, errorText);
+    return { provider, status: 'UNAVAILABLE', error: errorText, latency_ms: Date.now() - started };
+  }
+}
+
+async function probeProviderHealth(mint: string): Promise<Record<string, unknown>[]> {
+  const usdc = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const sol = 'So11111111111111111111111111111111111111112';
+  const jupiterKey = Deno.env.get('JUPITER_API_KEY') ?? '';
+  const jupiterHeaders: Record<string, string> = { accept: 'application/json' };
+  if (jupiterKey) jupiterHeaders['x-api-key'] = jupiterKey;
+  const checks = [
+    probeProvider('RugCheck',
+      'https://api.rugcheck.xyz/v1/tokens/' + mint + '/report',
+      { headers: { accept: 'application/json' } },
+      (body) => Boolean(body?.token && Array.isArray(body?.risks))),
+    probeProvider('GoPlus',
+      'https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=' + mint,
+      { headers: { accept: 'application/json' } },
+      (body) => body?.code === 1 && Boolean(body?.result?.[mint])),
+    probeProvider('Jupiter',
+      'https://api.jup.ag/swap/v1/quote?inputMint=' + usdc + '&outputMint=' + sol
+        + '&amount=25000000&slippageBps=100&instructionVersion=V2',
+      { headers: jupiterHeaders },
+      (body) => Boolean(body?.outAmount)),
+    probeProvider('Solana RPC', 'https://api.mainnet-beta.solana.com',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' }) },
+      (body) => body?.result === 'ok'),
+  ];
+  const { data: market } = await db.from('token_market_snapshots').select('pair_address')
+    .eq('mint', mint).order('captured_at', { ascending: false }).limit(1).maybeSingle();
+  if (market?.pair_address) {
+    checks.push(probeProvider('GeckoTerminal',
+      'https://api.geckoterminal.com/api/v2/networks/solana/pools/' + market.pair_address
+        + '/ohlcv/minute?aggregate=1&limit=2&currency=usd&token=base',
+      { headers: { accept: 'application/json;version=20230203' } },
+      (body) => Boolean(body?.data?.attributes?.ohlcv_list?.length)));
+  }
+  return await Promise.all(checks);
 }
 
 async function snapshotMint(mint: string): Promise<boolean> {
@@ -220,11 +280,13 @@ Deno.serve(async (request: Request) => {
     }
     await recordProvider('PumpPortal', pump.status, pump.launches.length, Date.now() - started, pump.error);
     await recordProvider('DexScreener', dexStatus, launchCount + snapshotCount, Date.now() - started, dexError);
+    const healthMint = candidateMints[0];
+    const providerHealth = healthMint ? await probeProviderHealth(healthMint) : [];
 
     return Response.json({
       ok: true, pumpportal: { status: pump.status, received: pump.launches.length, error: pump.error ?? null },
       dexscreener: { status: dexStatus, profiles: profileRows.length, snapshots: snapshotCount, error: dexError ?? null },
-      stored: launchCount, elapsed_ms: Date.now() - started,
+      stored: launchCount, provider_health: providerHealth, elapsed_ms: Date.now() - started,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
