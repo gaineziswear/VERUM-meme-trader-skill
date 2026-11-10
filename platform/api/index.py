@@ -300,9 +300,11 @@ async def analyse_token(mint: str, launch: dict[str, Any] | None = None,
     verified_graduation_sources = {
         "PUMPPORTAL_MIGRATION", "PUMPSWAP_DEX", "SOLANA_CURVE_COMPLETE",
     }
-    if curve_complete is True or graduation_source in verified_graduation_sources:
+    if curve_complete is False:
+        lifecycle = "BONDING_CURVE"
+    elif curve_complete is True or graduation_source in verified_graduation_sources:
         lifecycle = "GRADUATED"
-    elif curve_complete is False or graduation_source == "PUMPPORTAL_CREATE" or (launch or {}).get("graduation_status") == "BONDING_CURVE":
+    elif graduation_source == "PUMPPORTAL_CREATE" or (launch or {}).get("graduation_status") == "BONDING_CURVE":
         lifecycle = "BONDING_CURVE"
     else:
         lifecycle = "UNKNOWN"

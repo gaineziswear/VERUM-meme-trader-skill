@@ -31,7 +31,7 @@ type Launch = {
   initial_buy?: number | null;
   v_sol_in_curve?: number | null;
   v_tokens_in_curve?: number | null;
-  graduation_status: string;
+  graduation_status?: string;
   graduation_source?: string;
   pool_address?: string | null;
   discovery_source: string;
@@ -359,8 +359,6 @@ Deno.serve(async (request: Request) => {
           name: null,
           symbol: null,
           creator_wallet: null,
-          graduation_status: 'UNKNOWN',
-           graduation_source: 'UNKNOWN',
           discovery_source: 'DexScreener latest profile',
           last_seen_at: new Date().toISOString(),
           raw_event: item,
