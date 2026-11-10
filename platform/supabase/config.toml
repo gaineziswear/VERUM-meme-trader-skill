@@ -1,0 +1,7 @@
+project_id = "gszjxsrwxhvhnkzmqync"
+
+[functions.radar-ingest]
+verify_jwt = false
+
+[functions.paper-monitor]
+verify_jwt = false

@@ -1,3 +1,25 @@
 __pycache__/
 *.pyc
 /meme/
+
+# Python / API
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Deployment and logs
+.vercel/
+*.log
+.DS_Store
