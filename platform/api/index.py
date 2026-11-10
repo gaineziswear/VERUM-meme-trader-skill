@@ -295,8 +295,17 @@ async def analyse_token(mint: str, launch: dict[str, Any] | None = None,
     txns = ((pair or {}).get("txns") or {}).get("h1") or {}
     buys, sells = int(txns.get("buys") or 0), int(txns.get("sells") or 0)
     buy_sell_ratio = buys / max(sells, 1) if buys + sells > 0 else None
-    graduated = bool((launch or {}).get("graduation_status") in ("GRADUATED", "MIGRATED") or pair)
-    lifecycle = "GRADUATED" if graduated else "BONDING_CURVE" if launch else "UNKNOWN"
+    curve_complete = (launch or {}).get("curve_complete")
+    graduation_source = (launch or {}).get("graduation_source")
+    verified_graduation_sources = {
+        "PUMPPORTAL_MIGRATION", "PUMPSWAP_DEX", "SOLANA_CURVE_COMPLETE",
+    }
+    if curve_complete is True or graduation_source in verified_graduation_sources:
+        lifecycle = "GRADUATED"
+    elif curve_complete is False or graduation_source == "PUMPPORTAL_CREATE" or (launch or {}).get("graduation_status") == "BONDING_CURVE":
+        lifecycle = "BONDING_CURVE"
+    else:
+        lifecycle = "UNKNOWN"
     liquidity = _number((pair or {}).get("liquidity", {}).get("usd"))
 
     quote = None

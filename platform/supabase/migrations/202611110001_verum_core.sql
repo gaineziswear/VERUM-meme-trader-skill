@@ -247,6 +247,16 @@ grant execute on function public.close_paper_position(uuid,numeric,numeric,numer
 create index if not exists paper_trades_position_id_idx on public.paper_trades(position_id);
 create index if not exists token_market_captured_idx on public.token_market_snapshots(captured_at desc);
 alter table public.research_runs add column if not exists dataset_snapshot jsonb;
+alter table public.token_launches
+  add column if not exists curve_complete boolean,
+  add column if not exists bonding_curve_progress_pct numeric,
+  add column if not exists real_sol_reserves numeric,
+  add column if not exists real_token_reserves numeric,
+  add column if not exists curve_snapshot_at timestamptz,
+  add column if not exists curve_data_status text not null default 'UNKNOWN',
+  add column if not exists graduation_source text;
+create index if not exists token_launches_curve_status_idx
+  on public.token_launches(graduation_status,curve_snapshot_at desc);
 create index if not exists research_runs_user_mint_time_idx on public.research_runs(user_id,mint,created_at desc);
 
 drop policy if exists "Service role manages internal cron config" on public.verum_internal_config;

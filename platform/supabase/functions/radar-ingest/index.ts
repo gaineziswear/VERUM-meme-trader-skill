@@ -32,6 +32,7 @@ type Launch = {
   v_sol_in_curve?: number | null;
   v_tokens_in_curve?: number | null;
   graduation_status: string;
+  graduation_source?: string;
   pool_address?: string | null;
   discovery_source: string;
   last_seen_at: string;
@@ -43,7 +44,7 @@ function normalizePumpEvent(event: Record<string, unknown>): Launch | null {
   const mint = String(event.mint ?? '');
   if (!mint) return null;
   const txType = String(event.txType ?? event.type ?? '').toLowerCase();
-  const migrated = txType.includes('migrate') || Boolean(event.pool);
+  const migrated = txType.includes('migrate');
   return {
     mint,
     name: event.name ? String(event.name) : null,
@@ -55,7 +56,8 @@ function normalizePumpEvent(event: Record<string, unknown>): Launch | null {
     v_sol_in_curve: Number(event.vSolInBondingCurve ?? 0) || null,
     v_tokens_in_curve: Number(event.vTokensInBondingCurve ?? 0) || null,
     graduation_status: migrated ? 'GRADUATED' : 'BONDING_CURVE',
-    pool_address: event.pool ? String(event.pool) : null,
+    graduation_source: migrated ? 'PUMPPORTAL_MIGRATION' : 'PUMPPORTAL_CREATE',
+    pool_address: migrated && event.pool ? String(event.pool) : null,
     discovery_source: 'PumpPortal websocket',
     last_seen_at: new Date().toISOString(),
     raw_event: event,
@@ -135,6 +137,102 @@ async function recordProvider(provider: string, status: string, records: number,
     .eq('provider', provider).maybeSingle();
   if (existing) await db.from('provider_status').update(payload).eq('provider', provider);
   else await db.from('provider_status').insert({ ...payload, last_success_at: status === 'OK' ? now : null });
+}
+
+async function syncBondingCurves(): Promise<{ status: string; updated: number; latency_ms: number; error?: string }> {
+  const started = Date.now();
+  const { data: rows, error: queryError } = await db.from('token_launches')
+    .select('*').not('bonding_curve_key', 'is', null)
+    .order('last_seen_at', { ascending: false }).limit(50);
+  if (queryError) return { status: 'UNAVAILABLE', updated: 0, latency_ms: Date.now() - started, error: 'database_query_failed' };
+  if (!rows?.length) return { status: 'OK', updated: 0, latency_ms: Date.now() - started };
+  const keys = rows.map((row: any) => row.bonding_curve_key);
+  try {
+    const response = await fetch('https://api.mainnet-beta.solana.com', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'getMultipleAccounts',
+        params: [keys, { encoding: 'base64', commitment: 'confirmed' }],
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) throw new Error('rpc_http_' + response.status);
+    const payload = await response.json();
+    const accounts = payload?.result?.value;
+    if (!Array.isArray(accounts) || accounts.length !== rows.length) throw new Error('rpc_invalid_account_batch');
+    const programId = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+    const discriminator = '17b7f83760d8ac60';
+    const snapshotAt = new Date().toISOString();
+    const updates: any[] = [];
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const account = accounts[index];
+      if (!account) {
+        updates.push({ ...row, curve_data_status: 'ACCOUNT_NOT_FOUND', curve_snapshot_at: snapshotAt });
+        continue;
+      }
+      if (account.owner !== programId || !Array.isArray(account.data) || typeof account.data[0] !== 'string') {
+        updates.push({ ...row, curve_data_status: 'INVALID_OWNER', curve_snapshot_at: snapshotAt });
+        continue;
+      }
+      const binary = atob(account.data[0]);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      const actualDiscriminator = Array.from(bytes.slice(0, 8))
+        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (bytes.length < 49 || actualDiscriminator !== discriminator) {
+        updates.push({ ...row, curve_data_status: 'INVALID_LAYOUT', curve_snapshot_at: snapshotAt });
+        continue;
+      }
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const virtualTokenRaw = Number(view.getBigUint64(8, true));
+      const virtualSolLamports = Number(view.getBigUint64(16, true));
+      const realTokenRaw = Number(view.getBigUint64(24, true));
+      const realSolLamports = Number(view.getBigUint64(32, true));
+      const totalSupplyRaw = view.getBigUint64(40, true);
+      const complete = bytes[48] === 1;
+      const initialRealTokenRaw = Number(totalSupplyRaw) * 0.7931;
+      const rawProgress = totalSupplyRaw === 1_000_000_000_000_000n && initialRealTokenRaw > 0
+        ? (1 - realTokenRaw / initialRealTokenRaw) * 100 : NaN;
+      const progress = complete ? 100 : Number.isFinite(rawProgress)
+        ? Math.max(0, Math.min(99.99, rawProgress)) : null;
+      const quality = {
+        ...(row.data_quality ?? {}),
+        curve: {
+          source: 'Solana RPC getMultipleAccounts',
+          program_id: programId,
+          slot: payload.result.context?.slot ?? null,
+          snapshot_at: snapshotAt,
+          progress_method: 'Default Pump.fun supply 1e15; 79.31% initial real-token reserve; on-chain complete flag is authoritative',
+        },
+      };
+      updates.push({
+        ...row,
+        curve_complete: complete,
+        bonding_curve_progress_pct: progress,
+        real_sol_reserves: realSolLamports / 1_000_000_000,
+        real_token_reserves: realTokenRaw / 1_000_000,
+        v_sol_in_curve: virtualSolLamports / 1_000_000_000,
+        v_tokens_in_curve: virtualTokenRaw / 1_000_000,
+        curve_snapshot_at: snapshotAt,
+        curve_data_status: 'OK',
+        graduation_status: complete ? 'GRADUATED' : 'BONDING_CURVE',
+        graduation_source: complete ? 'SOLANA_CURVE_COMPLETE' : 'SOLANA_CURVE_INCOMPLETE',
+        data_quality: quality,
+        updated_at: snapshotAt,
+      });
+    }
+    const { error: upsertError } = await db.from('token_launches').upsert(updates, { onConflict: 'mint' });
+    return { status: upsertError ? 'UNAVAILABLE' : 'OK',
+             updated: upsertError ? 0 : updates.length, latency_ms: Date.now() - started,
+             error: upsertError ? 'database_upsert_failed' : undefined };
+  } catch (error) {
+    const message = error instanceof Error ? error.name : 'rpc_failed';
+    await db.from('token_launches').update({
+      curve_data_status: 'UNAVAILABLE', curve_snapshot_at: new Date().toISOString(),
+    }).in('mint', rows.map((row: any) => row.mint));
+    return { status: 'UNAVAILABLE', updated: 0, latency_ms: Date.now() - started, error: message };
+  }
 }
 
 async function probeProvider(provider: string, url: string,
@@ -223,10 +321,15 @@ async function snapshotMint(mint: string): Promise<boolean> {
       price_source: 'DexScreener', raw_data: pair,
     });
     if (error) throw error;
-    await db.from('token_launches').update({
-      graduation_status: 'GRADUATED', pool_address: pair.pairAddress ?? null,
+    const launchPatch: Record<string, unknown> = {
+      pool_address: pair.pairAddress ?? null,
       last_seen_at: capturedAt, updated_at: capturedAt,
-    }).eq('mint', mint);
+    };
+    if (String(pair.dexId ?? '').toLowerCase() === 'pumpswap') {
+      launchPatch.graduation_status = 'GRADUATED';
+      launchPatch.graduation_source = 'PUMPSWAP_DEX';
+    }
+    await db.from('token_launches').update(launchPatch).eq('mint', mint);
     return true;
   } catch {
     return false;
@@ -257,6 +360,7 @@ Deno.serve(async (request: Request) => {
           symbol: null,
           creator_wallet: null,
           graduation_status: 'UNKNOWN',
+           graduation_source: 'UNKNOWN',
           discovery_source: 'DexScreener latest profile',
           last_seen_at: new Date().toISOString(),
           raw_event: item,
@@ -268,6 +372,9 @@ Deno.serve(async (request: Request) => {
     }
 
     const launchCount = await upsertLaunches([...profileRows, ...pump.launches]);
+    const curveSync = await syncBondingCurves();
+    await recordProvider('Pump.fun On-chain', curveSync.status, curveSync.updated,
+                         curveSync.latency_ms, curveSync.error);
     const { data: recentLaunches } = await db.from('token_launches')
       .select('mint').order('last_seen_at', { ascending: false }).limit(100);
     const candidateMints = [...new Set([
@@ -286,7 +393,8 @@ Deno.serve(async (request: Request) => {
     return Response.json({
       ok: true, pumpportal: { status: pump.status, received: pump.launches.length, error: pump.error ?? null },
       dexscreener: { status: dexStatus, profiles: profileRows.length, snapshots: snapshotCount, error: dexError ?? null },
-      stored: launchCount, provider_health: providerHealth, elapsed_ms: Date.now() - started,
+      stored: launchCount, curve_sync: curveSync, provider_health: providerHealth,
+      elapsed_ms: Date.now() - started,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

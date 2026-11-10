@@ -38,7 +38,7 @@ See docs/UPSTREAM_AUDIT.md for the 13-skill source review, test-suite review, li
 
 No paid API or transaction service is enabled. PumpPortal account-trade and token-trade subscriptions are intentionally not enabled because some streams can incur SOL-denominated charges. Jupiter quotes are read-only; no swap transaction is built, signed or submitted. Without a Jupiter API key, quote calls are spaced for the public keyless rate limit. An optional free API key raises throughput. GeckoTerminal requests are serialized at a conservative 6.1-second interval; historical replay pages up to 3,000 one-minute candles when the pool has that history. Configure JUPITER_API_KEY in the API project and as a Supabase Edge Function secret if desired.
 
-Snapshot retention is seven days by default to control free-tier database growth. The five-minute Radar job also probes RugCheck, GoPlus, Jupiter, Solana RPC and GeckoTerminal, while recording PumpPortal and DexScreener ingestion status. Provider failures preserve the last successful timestamp and are not treated as healthy.
+Snapshot retention is seven days by default to control free-tier database growth. The five-minute Radar job also probes RugCheck, GoPlus, Jupiter, Solana RPC and GeckoTerminal, while recording PumpPortal and DexScreener ingestion status. Provider failures preserve the last successful timestamp and are not treated as healthy. Graduation provenance distinguishes `PUMPPORTAL_MIGRATION`, `PUMPSWAP_DEX`, and `SOLANA_CURVE_COMPLETE`; a generic DEX pair does not establish Pump.fun graduation. The bonding-curve percentage uses the default 79.31% initial real-token reserve assumption, while the on-chain `complete` boolean is authoritative.
 
 ## API
 

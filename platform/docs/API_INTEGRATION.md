@@ -63,3 +63,17 @@ Common errors:
 4. Store the refresh token securely and renew access tokens server-side.
 5. Call the GET endpoints with the bearer token.
 6. Treat every non-PASS security assessment and every stale quote as non-actionable.
+
+
+## Pump.fun curve-state fields
+
+Radar and token-research responses expose these optional launch fields:
+
+- \`curve_complete\`: on-chain Pump.fun bonding-curve completion flag; authoritative when available.
+- \`bonding_curve_progress_pct\`: estimated progress from real-token reserves, populated only for the default Pump.fun 1e15 supply layout.
+- \`real_sol_reserves\` and \`real_token_reserves\`: latest decoded on-chain reserves, expressed in SOL and whole tokens.
+- \`curve_snapshot_at\`: timestamp of the Solana RPC account snapshot.
+- \`curve_data_status\`: \`OK\`, \`ACCOUNT_NOT_FOUND\`, \`INVALID_OWNER\`, \`INVALID_LAYOUT\`, or \`UNAVAILABLE\`.
+- \`graduation_source\`: \`PUMPPORTAL_MIGRATION\`, \`PUMPSWAP_DEX\`, \`SOLANA_CURVE_COMPLETE\`, \`SOLANA_CURVE_INCOMPLETE\`, \`PUMPPORTAL_CREATE\`, or \`UNKNOWN\`.
+
+A generic DEX pair alone does not make a Pump.fun token graduated. Unknown account state remains unknown and cannot pass the execution lifecycle gate.
